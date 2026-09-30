@@ -1,0 +1,5 @@
+# All variables have working defaults; override only what you need.
+# environment        = "dev"
+# aws_region         = "eu-west-1"
+# instance_type      = "m7i-flex.large"
+# single_nat_gateway = false   # one NAT per AZ for production

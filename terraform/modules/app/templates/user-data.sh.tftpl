@@ -1,0 +1,135 @@
+#!/bin/bash
+# Provisions Nginx -> Tomcat 10.1 -> Magnolia CE (author instance) on Amazon Linux 2023.
+# Rendered by Terraform; runs once on first boot via cloud-init. Every step is idempotent,
+# so re-running it by hand (`sudo bash /var/lib/cloud/instance/user-data.txt`) is safe.
+set -euo pipefail
+exec > >(tee -a /var/log/magnolia-bootstrap.log) 2>&1
+echo "=== bootstrap start $(date -Is)"
+
+MAGNOLIA_VERSION="${magnolia_version}"
+MAGNOLIA_WAR_URL="${magnolia_war_url}"
+MAGNOLIA_WAR_SHA256="${magnolia_war_sha256}"
+MAGNOLIA_HOME="/var/lib/magnolia"
+WEBAPP_DIR="/opt/magnolia/webapps/magnolia-$${MAGNOLIA_VERSION}"
+PASSWORD_FILE="/etc/magnolia/superuser-password"
+
+# --- Packages: all from the Amazon Linux repos, so they get security updates via dnf ------------
+dnf -y install java-17-amazon-corretto-headless tomcat10 nginx unzip
+
+# --- Magnolia WAR: pinned version, verified checksum, exploded into a versioned directory -------
+if [[ ! -f "$${WEBAPP_DIR}/WEB-INF/web.xml" ]]; then
+  mkdir -p /opt/magnolia/webapps
+  war="/opt/magnolia/magnolia-$${MAGNOLIA_VERSION}.war"
+  curl -fsSL --retry 5 --retry-delay 5 -o "$${war}" "$${MAGNOLIA_WAR_URL}"
+  echo "$${MAGNOLIA_WAR_SHA256}  $${war}" | sha256sum -c -
+  mkdir -p "$${WEBAPP_DIR}"
+  unzip -q "$${war}" -d "$${WEBAPP_DIR}"
+  rm -f "$${war}"
+fi
+
+# Instance configuration goes into a Magnolia profile directory instead of editing the vendor
+# defaults, so an upgrade is "drop in the new WAR" and the diff to stock Magnolia is this file.
+mkdir -p "$${WEBAPP_DIR}/WEB-INF/config/aws"
+cat > "$${WEBAPP_DIR}/WEB-INF/config/aws/magnolia.properties" <<PROPS
+# Content, indexes, logs and keys live outside the webapp so they survive an upgrade.
+magnolia.home=$${MAGNOLIA_HOME}
+magnolia.author.key.location=$${MAGNOLIA_HOME}/keys/magnolia-activation-keypair.properties
+magnolia.password.manager.key.location=$${MAGNOLIA_HOME}/keys/magnolia-password-manager-keypair.properties
+# Unattended install/update: no "start installation" wizard on first request.
+magnolia.update.auto=true
+# Superuser password comes from SSM, never from an interactive form on a public URL.
+magnolia.superuser.bootstrap.password_file=$${PASSWORD_FILE}
+magnolia.superuser.bootstrap.interactive_setup=false
+PROPS
+
+# --- Superuser password from SSM Parameter Store (SecureString) --------------------------------
+install -d -m 0750 -o root -g tomcat /etc/magnolia
+if [[ ! -s "$${PASSWORD_FILE}" ]]; then
+  password=$(aws ssm get-parameter --region "${aws_region}" --name "${superuser_password_parameter}" \
+    --with-decryption --query Parameter.Value --output text)
+  (umask 0077 && printf '%s' "$${password}" > "$${PASSWORD_FILE}")
+  unset password
+  chgrp tomcat "$${PASSWORD_FILE}"
+  chmod 0440 "$${PASSWORD_FILE}"
+fi
+
+install -d -m 0750 -o tomcat -g tomcat "$${MAGNOLIA_HOME}" "$${MAGNOLIA_HOME}/keys"
+chown -R tomcat:tomcat /opt/magnolia/webapps
+
+# --- Tomcat -------------------------------------------------------------------------------------
+# Loaded after /etc/tomcat10/tomcat10.conf by the systemd unit, so these values win.
+cat > /etc/sysconfig/tomcat10 <<CONF
+JAVA_OPTS="-Xms${java_heap_mb}m -Xmx${java_heap_mb}m -XX:+UseG1GC -Djava.awt.headless=true -Dfile.encoding=UTF-8"
+MAGNOLIA_PROFILE="aws"
+MAGNOLIA_INSTANCE_TYPE="author"
+CONF
+
+# Magnolia is the root context. The WAR stays outside Tomcat's appBase, so the versioned
+# directory is switched by editing one line here rather than by copying files around.
+cat > /etc/tomcat10/Catalina/localhost/ROOT.xml <<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<Context docBase="$${WEBAPP_DIR}">
+  <!-- Nginx is the only client; trust its X-Forwarded-* so Magnolia builds https:// URLs
+       for the CloudFront hostname instead of http://localhost:8080. -->
+  <Valve className="org.apache.catalina.valves.RemoteIpValve"
+         internalProxies="127\.0\.0\.1"
+         remoteIpHeader="X-Forwarded-For"
+         protocolHeader="X-Forwarded-Proto" />
+</Context>
+XML
+
+# Listen on loopback only: the sole way in is through Nginx.
+if ! grep -q 'address="127.0.0.1"' /etc/tomcat10/server.xml; then
+  sed -i 's|<Connector port="8080" protocol="HTTP/1.1"|<Connector port="8080" address="127.0.0.1" protocol="HTTP/1.1"|' /etc/tomcat10/server.xml
+fi
+grep -q 'address="127.0.0.1"' /etc/tomcat10/server.xml
+
+# --- Nginx --------------------------------------------------------------------------------------
+cat > /etc/nginx/conf.d/magnolia.conf <<'NGINX'
+upstream magnolia {
+    server 127.0.0.1:8080;
+    keepalive 32;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+# CloudFront terminates TLS and talks HTTP to the ALB, so the viewer's scheme arrives in
+# CloudFront-Forwarded-Proto. Fall back to whatever the hop before us said.
+map $http_cloudfront_forwarded_proto $viewer_proto {
+    default $http_cloudfront_forwarded_proto;
+    ''      $http_x_forwarded_proto;
+}
+
+server {
+    listen 80 default_server;
+
+    client_max_body_size 100m;   # DAM uploads
+    server_tokens off;
+
+    location / {
+        proxy_pass http://magnolia;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $viewer_proto;
+
+        # Vaadin push (AdminCentral) uses WebSockets.
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        proxy_read_timeout 300s;
+    }
+}
+NGINX
+nginx -t
+
+# --- Start --------------------------------------------------------------------------------------
+systemctl enable --now nginx tomcat10
+systemctl restart nginx tomcat10
+
+echo "=== bootstrap done $(date -Is); Magnolia takes ~1-2 min to install, see /var/log/tomcat10/"

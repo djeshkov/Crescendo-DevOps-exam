@@ -1,0 +1,4 @@
+# Copy to backend.hcl (git-ignored) and fill in the bucket created by ../bootstrap.
+bucket = "magnolia-tfstate-<account-id>"
+key    = "magnolia/dev/terraform.tfstate"
+region = "eu-west-1"
