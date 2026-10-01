@@ -131,14 +131,16 @@ locals {
 }
 
 # Trust: GitHub's OIDC audience + one exact `sub`, i.e. one repository and one kind of run.
+# New repositories get an immutable subject that embeds owner and repository IDs, so a renamed
+# or re-created repository with the same name can never assume these roles.
 data "aws_iam_policy_document" "github_trust" {
   for_each = {
     # PR plans, and the plan that precedes every apply on main (main only moves via reviewed PRs).
     plan = [
-      "repo:${var.github_repository}:pull_request",
-      "repo:${var.github_repository}:ref:refs/heads/main",
+      "${var.github_oidc_subject_prefix}:pull_request",
+      "${var.github_oidc_subject_prefix}:ref:refs/heads/main",
     ]
-    apply = ["repo:${var.github_repository}:environment:${var.github_apply_environment}"]
+    apply = ["${var.github_oidc_subject_prefix}:environment:${var.github_apply_environment}"]
   }
 
   statement {

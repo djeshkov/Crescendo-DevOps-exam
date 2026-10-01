@@ -111,7 +111,7 @@ Day-to-day changes go through the pipeline: **PR → plan → merge → approve 
 ```bash
 cd bootstrap
 terraform init
-terraform apply        # optionally: -var github_repository=<owner>/<repo>
+terraform apply        # for another repo: -var github_oidc_subject_prefix=$(gh api repos/<owner>/<repo>/actions/oidc/customization/sub --jq .sub_claim_prefix)
 terraform output
 ```
 
@@ -193,10 +193,10 @@ flowchart LR
 ### Security model
 
 - **No long-lived credentials.** GitHub OIDC tokens are exchanged for 1-hour AWS sessions. Each role trusts one exact token subject:
-  - plan: `repo:djeshkov/Crescendo-DevOps-exam:pull_request` and `…:ref:refs/heads/main`
-  - apply: `repo:djeshkov/Crescendo-DevOps-exam:environment:aws-dev`
+  - plan: `<prefix>:pull_request` and `<prefix>:ref:refs/heads/main`
+  - apply: `<prefix>:environment:aws-dev`
 
-  Forks receive no OIDC token at all.
+  The prefix is GitHub's immutable subject, `repo:djeshkov@10827228/Crescendo-DevOps-exam@1398084996`. It embeds the owner and repository IDs, so a renamed or re-created repository with the same name cannot assume the roles. Forks receive no OIDC token at all.
 - **The plan role is read-only** (`ReadOnlyAccess`); its one write is the state lock file. Anyone who can open a PR can change the workflow and run code with this role, so it must never be able to change anything. For the same reason, secrets stay out of state where possible: the Magnolia password is ephemeral and write-only.
 - **The apply role is `PowerUserAccess` plus fenced IAM:**
   - It can create IAM roles and instance profiles only under the `magnolia-*` prefix.
