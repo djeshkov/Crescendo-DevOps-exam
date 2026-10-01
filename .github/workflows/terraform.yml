@@ -4,14 +4,9 @@ name: terraform
 # Push to main: fmt -> validate/tflint -> plan -> [manual approval in the aws-dev environment] -> apply.
 
 on:
+  # Every PR: the checks are required by branch protection, so a path filter here would leave
+  # docs-only PRs waiting forever for checks that never start.
   pull_request:
-    paths:
-      - "terraform/**"
-      - "bootstrap/**"
-      - "scripts/**"
-      - ".terraform-version"
-      - ".tflint.hcl"
-      - ".github/workflows/terraform.yml"
   push:
     branches: [main]
     paths:
