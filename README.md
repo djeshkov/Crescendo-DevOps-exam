@@ -17,9 +17,9 @@ A few things go beyond the brief. Each is small and closes a real gap:
 
 ## Architecture
 
-![Architecture: viewers reach CloudFront, which forwards to the ALB in the public subnets and on to Nginx, Tomcat and Magnolia on a private EC2 instance; the instance reaches the internet only through the NAT gateway, and operators connect through SSM Session Manager](docs/architecture.png)
+![Architecture: viewers reach CloudFront, which forwards to one ALB with a node in each public subnet (eu-west-1a and 1b); both nodes forward to Nginx, Tomcat and Magnolia on a single EC2 instance in the private subnet of 1a. The instance reaches S3 through a gateway endpoint, and everything else (Parameter Store, Session Manager, the internet) through NAT and the Internet Gateway. Operators connect through Session Manager.](docs/architecture.png)
 
-<sub>Generated from [`docs/architecture.py`](docs/architecture.py) with [diagrams](https://diagrams.mingrammer.com/). To regenerate: `pip install diagrams` (needs Graphviz), then `python docs/architecture.py && python docs/cicd.py`. Solid blue is the request path, dashed grey is outbound traffic from the instance, dotted purple is operator access. The CI/CD pipeline has its own diagram [below](#cicd-github-actions).</sub>
+<sub>Generated from [`docs/architecture.py`](docs/architecture.py) with [diagrams](https://diagrams.mingrammer.com/). To regenerate: `pip install diagrams` (needs Graphviz), then `python docs/architecture.py && python docs/cicd.py`. Solid blue is the request path, dashed grey is the instance's outbound traffic, dotted purple is operator access. The VPC is drawn per availability zone. The ALB is one load balancer with a node in each public subnet, and both nodes serve traffic (cross-zone).</sub>
 
 ### How a request flows
 
