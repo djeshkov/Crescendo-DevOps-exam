@@ -19,7 +19,7 @@ from diagrams.aws.storage import SimpleStorageServiceS3Bucket
 from diagrams.onprem.client import User
 from diagrams.onprem.iac import Terraform
 from diagrams.onprem.vcs import Github
-from diagrams.programming.flowchart import Decision
+from diagrams.programming.flowchart import Decision, StartEnd
 
 OUTPUT = Path(__file__).with_name("cicd")
 
@@ -36,19 +36,22 @@ with Diagram(
     edge_attr=EDGE,
 ):
     with Cluster("GitHub Actions · .github/workflows/terraform.yml"):
-        with Cluster("Push to main (after merge)"):
-            merge = Github("merge to main")
-            main_checks = Terraform("fmt · validate · tflint")
-            main_plan = Terraform("plan\n+ fingerprint")
-            approve = User("approval\naws-dev environment")
-            same = Decision("re-plan:\nsame fingerprint?")
-            apply = Terraform("apply")
-
         with Cluster("Pull request"):
             pr = Github("pull request")
             pr_checks = Terraform("fmt · validate · tflint\nboth stacks, no AWS access")
             pr_plan = Terraform("plan")
             pr_comment = Github("plan posted\nas PR comment")
+
+        with Cluster("Push to main (after merge)"):
+            merge = Github("merge to main")
+            main_checks = Terraform("fmt · validate · tflint")
+            main_plan = Terraform("plan\n+ fingerprint")
+            changes = Decision("changes?")
+            nothing = StartEnd("nothing to apply\n(no approval asked)")
+            approve = User("approval\naws-dev environment")
+            same = Decision("re-plan:\nsame fingerprint?")
+            apply = Terraform("apply")
+            stop = StartEnd("stop: plan drifted\nre-run, review again")
 
     with Cluster("AWS account"):
         with Cluster("bootstrap/ (applied once, by a human)"):
@@ -62,8 +65,14 @@ with Diagram(
     pr >> Edge(**request) >> pr_checks >> Edge(**request) >> pr_plan >> Edge(**request) >> pr_comment
 
     # main lane: nothing is applied without a human approval and an unchanged plan
-    merge >> Edge(**request) >> main_checks >> Edge(**request) >> main_plan >> Edge(**request) >> approve
+    merge >> Edge(**request) >> main_checks >> Edge(**request) >> main_plan >> Edge(**request) >> changes
+    changes >> Edge(xlabel="no", **outbound) >> nothing
+    changes >> Edge(xlabel="yes", **request) >> approve
     approve >> Edge(**request) >> same >> Edge(xlabel="yes", **request) >> apply
+    same >> Edge(xlabel="no", **outbound) >> stop
+
+    # Branch protection: main only moves through a PR whose required checks are green
+    pr_comment >> Edge(xlabel="required checks green", constraint="false", **control) >> merge
 
     # Credentials: OIDC tokens exchanged for short-lived role sessions
     pr_plan >> Edge(xlabel="OIDC", **control) >> plan_role
