@@ -31,13 +31,12 @@ from _style import REQUEST as request
 
 OUTPUT = Path(__file__).with_name("architecture")
 
-# Layout is driven by edge direction (LR): each `>>` puts its target one column to the right.
-# Everything the instance calls is written right-to-left with `<<`. NAT, the S3 endpoint and
-# Parameter Store land in the ALB column, the IGW in the CloudFront column and the internet on the
-# far left, so no line crosses the request path.
-# The CI/CD pipeline has its own diagram in the README.
+# Layout: the request path (blue) runs left to right. The instance's outbound traffic is written
+# right-to-left with `<<`, so it never crosses the request path: AWS APIs without a VPC endpoint
+# (Parameter Store, Session Manager) sit left, reached via NAT + IGW; S3 sits right, reached
+# through its free gateway endpoint without touching NAT.
 with Diagram(
-    "Magnolia CMS on AWS: runtime",
+    "Magnolia CMS on AWS",
     filename=str(OUTPUT),
     outformat="png",
     direction="LR",
@@ -48,62 +47,59 @@ with Diagram(
 ):
     viewers = Users("Viewers")
     operator = User("Operator")
-    nexus = Internet("Internet\nMagnolia Nexus\n(WAR download)")
+    internet = Internet("Internet\n(Magnolia Nexus)")
 
     with Cluster("AWS · eu-west-1"):
-        cdn = CloudFront("CloudFront\nTLS, HTTP→HTTPS\ncaches static UI assets\nadds secret origin header")
-        # AWS APIs without a VPC endpoint: the instance reaches them like the internet, via NAT + IGW.
-        with Cluster("AWS public endpoints (via NAT)"):
-            ssm = SystemsManager("Session Manager\n(instead of SSH)")
-            params = SystemsManagerParameterStore("Parameter Store\nsuperuser password\n(read at first boot)")
+        cdn = CloudFront(
+            "CloudFront · HTTPS\n"
+            "cached: /.resources/*, /VAADIN/*\n"
+            "(origin Cache-Control, ?v= in key)\n"
+            "not cached: pages, AdminCentral"
+        )
+
+        with Cluster("AWS APIs (reached via NAT)"):
+            ssm = SystemsManager("Session Manager\n(no SSH)")
+            params = SystemsManagerParameterStore("Parameter Store\nadmin password")
+
+        s3 = SimpleStorageServiceS3Bucket("S3\n(OS packages)")
 
         with Cluster("VPC 10.20.0.0/16"):
             igw = InternetGateway("Internet Gateway")
-            s3_endpoint = Endpoint("S3 gateway endpoint\n(bypasses NAT)")
+            s3_endpoint = Endpoint("S3 gateway\nendpoint")
 
-            with Cluster("Availability zone eu-west-1a"):
-                with Cluster("public subnet 10.20.0.0/24"):
+            with Cluster("eu-west-1b"):
+                with Cluster("public 10.20.1.0/24"):
+                    alb_b = ElbApplicationLoadBalancer("ALB node · 1b")
+                with Cluster("private 10.20.11.0/24"):
+                    spare = Blank("(reserved)")
+
+            with Cluster("eu-west-1a"):
+                with Cluster("public 10.20.0.0/24"):
+                    alb = ElbApplicationLoadBalancer("ALB node · 1a\none ALB, CloudFront IPs only")
                     nat = NATGateway("NAT Gateway")
 
-                with Cluster("private subnet 10.20.10.0/24"):
-                    with Cluster("EC2 m7i-flex.large · Amazon Linux 2023\nno public IP · no SSH · IMDSv2"):
-                        nginx = Nginx("Nginx :80")
-                        tomcat = Tomcat("Tomcat 10.1\nloopback :8080")
-                        magnolia = Java("Magnolia CE 6.4\nauthor instance")
-                        host = EC2("EC2 instance\nIAM role + boundary")
-
-            # One logical load balancer with a node in each public subnet: drawn between the two AZs.
-            alb = ElbApplicationLoadBalancer(
-                "ALB · public subnets 1a + 1b\nCloudFront IPs only\n403 without header\nhealth: /.rest/health/ready"
-            )
-
-            # The second AZ exists because the ALB requires two, and so that the next steps
-            # (a second instance, RDS) need no network changes. Nothing of ours runs there yet.
-            with Cluster("Availability zone eu-west-1b (standby)"):
-                az_b = Blank(
-                    "public 10.20.1.0/24:\nsecond ALB node\n\n"
-                    "private 10.20.11.0/24:\nempty, reserved for\n2nd instance / RDS"
-                )
-
-        s3 = SimpleStorageServiceS3Bucket("S3\nAmazon Linux repos")
+                with Cluster("private 10.20.10.0/24"):
+                    with Cluster("EC2 instance · no public IP · no SSH"):
+                        nginx = Nginx("Nginx")
+                        tomcat = Tomcat("Tomcat")
+                        magnolia = Java("Magnolia CE")
+                        host = EC2("OS + SSM agent")
 
     # Request path
-    viewers >> Edge(xlabel="HTTPS", **request) >> cdn
-    cdn >> Edge(xlabel="HTTP + secret header", **request) >> alb
-    alb >> Edge(**request) >> nginx
+    viewers >> Edge(**request) >> cdn
+    cdn >> Edge(**request) >> alb >> Edge(**request) >> nginx
+    cdn >> Edge(**request) >> alb_b >> Edge(**request) >> nginx
     nginx >> Edge(**request) >> tomcat >> Edge(**request) >> magnolia
 
-    # Outbound from the private subnet. Only S3 has a (free) gateway endpoint; everything else,
-    # AWS APIs included, leaves through NAT -> IGW. Internet-bound edges are drawn right-to-left.
+    # Outbound from the instance
     igw << Edge(**outbound) << nat << Edge(**outbound) << host
-    nexus << Edge(**outbound) << igw
+    internet << Edge(**outbound) << igw
     params << Edge(**outbound) << igw
-    ssm << Edge(xlabel="agent channel", **outbound) << igw
+    ssm << Edge(**outbound) << igw
     host >> Edge(**outbound) >> s3_endpoint >> Edge(**outbound) >> s3
 
-    # Keep the empty AZ in line with the populated one (layout only).
-    alb >> Edge(style="invis") >> az_b
-
-    # Operator access, no SSH: the operator talks to Session Manager, which relays over the
-    # channel the instance's SSM agent keeps open.
+    # Operator access: Session Manager relays over the channel the SSM agent keeps open
     operator >> Edge(**control) >> ssm
+
+    # Layout only: keep the reserved subnet in the private column
+    alb_b >> Edge(style="invis") >> spare
