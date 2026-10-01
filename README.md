@@ -5,6 +5,16 @@ Terraform deploys Magnolia CMS Community Edition 6.4 on AWS: one EC2 instance in
 - **Magnolia URL:** `https://<distribution>.cloudfront.net/.magnolia/admincentral` (from the `magnolia_url` output)
 - **Login:** `superuser`. The password is generated at deploy time and stored in SSM Parameter Store (see [Log in](#4-log-in)).
 
+## Scope
+
+Everything the exam asked for is here: the VPC with 2 public and 2 private subnets, IGW, NAT, one EC2 instance in a private subnet, the ALB, CloudFront, Nginx → Tomcat → Magnolia provisioned by Terraform, `fmt`/`validate`/`plan` on PRs, and this README.
+
+A few things go beyond the brief. Each is small and closes a real gap:
+
+- **Apply on merge, behind a manual approval.** It answers "how would you keep moving forward", and it means nobody needs admin keys on a laptop.
+- **Unattended Magnolia setup.** Magnolia 6.4 otherwise asks the first visitor of a public URL to set the admin password.
+- **The ALB is reachable only through this CloudFront distribution**, not from the internet.
+
 ## Architecture
 
 ```mermaid
