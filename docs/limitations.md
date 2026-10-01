@@ -19,6 +19,7 @@
 | First boot needs the internet | Provisioning depends on Magnolia's Nexus and the NAT. | Bake an AMI with Packer, or mirror the WAR to S3. |
 | Origin-verify secret is in Terraform state | Anyone who can read state can bypass CloudFront. | State is private and encrypted; VPC origins remove the secret. |
 | No WAF, alarms or log shipping | Operating blind. | WAF managed rules, CloudWatch logs and alarms. |
+| The plan role can read secrets | A collaborator's PR runs with the plan role, which can read the Terraform state and the Magnolia password in SSM. | Host the repository in an organization, where reviewers get read-only access, or put PR plans behind an environment approval. |
 | Apply role is broader than this stack needs | IAM is fenced; other services are not. | A policy scoped from CloudTrail activity. |
 | Bootstrap state is local | Losing it means re-importing a few resources. | Migrate it into the bucket it creates. |
 
