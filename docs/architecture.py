@@ -27,10 +27,10 @@ OUTPUT = Path(__file__).with_name("architecture")
 GRAPH = {
     "fontsize": "22",
     "fontname": "Helvetica",
-    "pad": "0.4",
-    "nodesep": "0.55",
-    "ranksep": "0.9",
-    "splines": "spline",
+    "pad": "0.7",
+    "nodesep": "0.8",
+    "ranksep": "1.6",
+    "splines": "ortho",  # right-angle edges. Ortho places edge labels poorly, so details live in node labels
 }
 NODE = {"fontsize": "12", "fontname": "Helvetica"}
 EDGE = {"fontsize": "11", "fontname": "Helvetica"}
@@ -57,17 +57,17 @@ with Diagram(
 ):
     viewers = Users("Viewers")
     operator = User("Operator")
-    nexus = Internet("Internet\n(Magnolia Nexus)")
+    nexus = Internet("Internet\nMagnolia Nexus\n(WAR download)")
 
     with Cluster("AWS · eu-west-1"):
         cdn = CloudFront("CloudFront\nTLS, HTTP→HTTPS\ncaches static UI assets\nadds secret origin header")
-        ssm = SystemsManager("Session Manager")
+        ssm = SystemsManager("Session Manager\n(instead of SSH)")
 
         with Cluster("VPC 10.20.0.0/16"):
             igw = InternetGateway("Internet Gateway")
 
             with Cluster("Public subnets · eu-west-1a / 1b"):
-                alb = ElbApplicationLoadBalancer("ALB\nCloudFront IPs only\n403 without header")
+                alb = ElbApplicationLoadBalancer("ALB\nCloudFront IPs only\n403 without header\nhealth: /.rest/health/ready")
                 nat = NATGateway("NAT Gateway")
 
             with Cluster("Private subnets · eu-west-1a / 1b"):
@@ -79,18 +79,18 @@ with Diagram(
 
             s3_endpoint = Endpoint("S3 gateway endpoint\n(dnf repositories)")
 
-        params = SystemsManagerParameterStore("Parameter Store\nsuperuser password")
+        params = SystemsManagerParameterStore("Parameter Store\nsuperuser password\n(read at first boot)")
 
     # Request path
-    viewers >> Edge(label="HTTPS", **request) >> cdn
-    cdn >> Edge(label="HTTP + secret header", **request) >> alb
-    alb >> Edge(label="health: /.rest/health/ready", **request) >> nginx
+    viewers >> Edge(xlabel="HTTPS", **request) >> cdn
+    cdn >> Edge(xlabel="HTTP + secret header", **request) >> alb
+    alb >> Edge(**request) >> nginx
     nginx >> Edge(**request) >> tomcat >> Edge(**request) >> magnolia
 
     # Outbound from the private subnet (drawn right-to-left)
-    nexus << Edge(label="WAR download", **outbound) << igw << Edge(**outbound) << nat << Edge(**outbound) << host
-    s3_endpoint << Edge(label="packages", **outbound) << host
-    params << Edge(label="first boot", **outbound) << host
+    nexus << Edge(**outbound) << igw << Edge(**outbound) << nat << Edge(**outbound) << host
+    s3_endpoint << Edge(**outbound) << host
+    params << Edge(**outbound) << host
 
     # Operator access, no SSH
-    operator >> Edge(label="start-session", **control) >> ssm >> Edge(**control) >> host
+    operator >> Edge(**control) >> ssm >> Edge(**control) >> host
