@@ -3,9 +3,6 @@ data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
 }
 
-data "aws_cloudfront_cache_policy" "optimized" {
-  name = "Managed-CachingOptimized"
-}
 
 # Forwards everything the viewer sent (Host, cookies, query strings) plus CloudFront-* headers,
 # notably CloudFront-Forwarded-Proto, which tells Magnolia the viewer used HTTPS.
@@ -23,6 +20,35 @@ locals {
   # Theme/UI assets that are identical for every visitor. Everything else is dynamic
   # (AdminCentral is authenticated), so the default behaviour does not cache.
   static_path_patterns = ["/.resources/*", "/VAADIN/*"]
+}
+
+# Static UI assets. Like Managed-CachingOptimized, but query strings are part of the cache key:
+# Vaadin and Magnolia bust caches with ?v=<version>, and with the managed policy every version
+# collapsed into one cached object, so stale JS could be served for up to an hour after an
+# upgrade. TTLs follow the origin's Cache-Control (min 0, so max-age=0 really means "don't keep").
+resource "aws_cloudfront_cache_policy" "static_assets" {
+  name        = "${var.name}-static-assets"
+  comment     = "Magnolia/Vaadin static assets: origin TTLs, query strings in the cache key"
+  min_ttl     = 0
+  default_ttl = 86400    # when the origin sends no Cache-Control
+  max_ttl     = 31536000 # 1 year
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_gzip   = true
+    enable_accept_encoding_brotli = true
+
+    cookies_config {
+      cookie_behavior = "none"
+    }
+
+    headers_config {
+      header_behavior = "none"
+    }
+
+    query_strings_config {
+      query_string_behavior = "all"
+    }
+  }
 }
 
 resource "aws_cloudfront_distribution" "this" {
@@ -74,7 +100,7 @@ resource "aws_cloudfront_distribution" "this" {
       cached_methods         = ["GET", "HEAD"]
       compress               = true
 
-      cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
+      cache_policy_id            = aws_cloudfront_cache_policy.static_assets.id
       response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     }
   }
