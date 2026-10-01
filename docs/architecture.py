@@ -10,6 +10,7 @@ from pathlib import Path
 
 from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.compute import EC2
+from diagrams.generic.blank import Blank
 from diagrams.aws.management import SystemsManager, SystemsManagerParameterStore
 from diagrams.aws.network import (
     CloudFront,
@@ -54,19 +55,31 @@ with Diagram(
 
         with Cluster("VPC 10.20.0.0/16"):
             igw = InternetGateway("Internet Gateway")
-
-            with Cluster("Public subnets · eu-west-1a / 1b"):
-                alb = ElbApplicationLoadBalancer("ALB\nCloudFront IPs only\n403 without header\nhealth: /.rest/health/ready")
-                nat = NATGateway("NAT Gateway")
-
-            with Cluster("Private subnets · eu-west-1a / 1b"):
-                with Cluster("EC2 m7i-flex.large · Amazon Linux 2023\nno public IP · no SSH · IMDSv2"):
-                    nginx = Nginx("Nginx :80")
-                    tomcat = Tomcat("Tomcat 10.1\nloopback :8080")
-                    magnolia = Java("Magnolia CE 6.4\nauthor instance")
-                    host = EC2("instance role\n(permissions boundary)")
-
             s3_endpoint = Endpoint("S3 gateway endpoint\n(dnf repositories)")
+
+            with Cluster("Availability zone eu-west-1a"):
+                with Cluster("public subnet 10.20.0.0/24"):
+                    nat = NATGateway("NAT Gateway")
+
+                with Cluster("private subnet 10.20.10.0/24"):
+                    with Cluster("EC2 m7i-flex.large · Amazon Linux 2023\nno public IP · no SSH · IMDSv2"):
+                        nginx = Nginx("Nginx :80")
+                        tomcat = Tomcat("Tomcat 10.1\nloopback :8080")
+                        magnolia = Java("Magnolia CE 6.4\nauthor instance")
+                        host = EC2("EC2 instance\nIAM role + boundary")
+
+            # One logical load balancer with a node in each public subnet: drawn between the two AZs.
+            alb = ElbApplicationLoadBalancer(
+                "ALB · public subnets 1a + 1b\nCloudFront IPs only\n403 without header\nhealth: /.rest/health/ready"
+            )
+
+            # The second AZ exists because the ALB requires two, and so that the next steps
+            # (a second instance, RDS) need no network changes. Nothing of ours runs there yet.
+            with Cluster("Availability zone eu-west-1b (standby)"):
+                az_b = Blank(
+                    "public 10.20.1.0/24:\nsecond ALB node\n\n"
+                    "private 10.20.11.0/24:\nempty, reserved for\n2nd instance / RDS"
+                )
 
         params = SystemsManagerParameterStore("Parameter Store\nsuperuser password\n(read at first boot)")
 
@@ -80,6 +93,9 @@ with Diagram(
     nexus << Edge(**outbound) << igw << Edge(**outbound) << nat << Edge(**outbound) << host
     s3_endpoint << Edge(**outbound) << host
     params << Edge(**outbound) << host
+
+    # Keep the empty AZ in line with the populated one (layout only).
+    alb >> Edge(style="invis") >> az_b
 
     # Operator access, no SSH
     operator >> Edge(**control) >> ssm >> Edge(**control) >> host
