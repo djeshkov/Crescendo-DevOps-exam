@@ -10,8 +10,9 @@ from pathlib import Path
 
 from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.compute import EC2
-from diagrams.generic.blank import Blank
 from diagrams.aws.management import SystemsManager, SystemsManagerParameterStore
+from diagrams.aws.storage import SimpleStorageServiceS3Bucket
+from diagrams.generic.blank import Blank
 from diagrams.aws.network import (
     CloudFront,
     ElbApplicationLoadBalancer,
@@ -51,11 +52,14 @@ with Diagram(
 
     with Cluster("AWS · eu-west-1"):
         cdn = CloudFront("CloudFront\nTLS, HTTP→HTTPS\ncaches static UI assets\nadds secret origin header")
-        ssm = SystemsManager("Session Manager\n(instead of SSH)")
+        # AWS APIs without a VPC endpoint: the instance reaches them like the internet, via NAT + IGW.
+        with Cluster("AWS public endpoints (via NAT)"):
+            ssm = SystemsManager("Session Manager\n(instead of SSH)")
+            params = SystemsManagerParameterStore("Parameter Store\nsuperuser password\n(read at first boot)")
 
         with Cluster("VPC 10.20.0.0/16"):
             igw = InternetGateway("Internet Gateway")
-            s3_endpoint = Endpoint("S3 gateway endpoint\n(dnf repositories)")
+            s3_endpoint = Endpoint("S3 gateway endpoint\n(bypasses NAT)")
 
             with Cluster("Availability zone eu-west-1a"):
                 with Cluster("public subnet 10.20.0.0/24"):
@@ -81,7 +85,7 @@ with Diagram(
                     "private 10.20.11.0/24:\nempty, reserved for\n2nd instance / RDS"
                 )
 
-        params = SystemsManagerParameterStore("Parameter Store\nsuperuser password\n(read at first boot)")
+        s3 = SimpleStorageServiceS3Bucket("S3\nAmazon Linux repos")
 
     # Request path
     viewers >> Edge(xlabel="HTTPS", **request) >> cdn
@@ -89,13 +93,17 @@ with Diagram(
     alb >> Edge(**request) >> nginx
     nginx >> Edge(**request) >> tomcat >> Edge(**request) >> magnolia
 
-    # Outbound from the private subnet (drawn right-to-left)
-    nexus << Edge(**outbound) << igw << Edge(**outbound) << nat << Edge(**outbound) << host
-    s3_endpoint << Edge(**outbound) << host
-    params << Edge(**outbound) << host
+    # Outbound from the private subnet. Only S3 has a (free) gateway endpoint; everything else,
+    # AWS APIs included, leaves through NAT -> IGW. Internet-bound edges are drawn right-to-left.
+    igw << Edge(**outbound) << nat << Edge(**outbound) << host
+    nexus << Edge(**outbound) << igw
+    params << Edge(**outbound) << igw
+    ssm << Edge(xlabel="agent channel", **outbound) << igw
+    host >> Edge(**outbound) >> s3_endpoint >> Edge(**outbound) >> s3
 
     # Keep the empty AZ in line with the populated one (layout only).
     alb >> Edge(style="invis") >> az_b
 
-    # Operator access, no SSH
-    operator >> Edge(**control) >> ssm >> Edge(**control) >> host
+    # Operator access, no SSH: the operator talks to Session Manager, which relays over the
+    # channel the instance's SSM agent keeps open.
+    operator >> Edge(**control) >> ssm
