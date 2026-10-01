@@ -48,6 +48,21 @@ A few things go beyond the brief. Each is small and closes a real gap:
 | Remote state in S3 with native locking (`use_lockfile`) | No DynamoDB table needed (Terraform ≥ 1.10). |
 | CI authenticates with GitHub OIDC; separate plan/apply roles | No long-lived AWS keys in GitHub. Plan is read-only; apply needs a manual approval and is boxed in by a permissions boundary. See [Security model](#security-model). |
 
+## Screenshots
+
+All screenshots are taken through the CloudFront URL (`https://dsa8gdq9keky6.cloudfront.net`).
+
+| | |
+|---|---|
+| **Login page**, served through CloudFront → ALB → Nginx → Tomcat | **AdminCentral** after login |
+| ![Magnolia login page via CloudFront](docs/screenshots/01-login-via-cloudfront.png) | ![Magnolia AdminCentral home](docs/screenshots/02-admincentral.png) |
+| **About Magnolia**: CE 6.4.10, author instance, Amazon Linux 2023, Corretto 17, Tomcat 10.1 | **Pages app** with a page created through the UI |
+| ![About Magnolia](docs/screenshots/03-about-magnolia.png) | ![Pages app with crescendo-demo page](docs/screenshots/04-pages-app.png) |
+
+**The page rendered by Magnolia:**
+
+![crescendo-demo page rendered through CloudFront](docs/screenshots/05-page-rendered.png)
+
 ## Repository layout
 
 ```
@@ -63,7 +78,7 @@ A few things go beyond the brief. Each is small and closes a real gap:
 │   │   └── cdn/               # CloudFront distribution
 │   ├── backend.hcl.example
 │   └── terraform.tfvars.example
-├── docs/                         # diagrams as code: architecture.py, cicd.py → *.png
+├── docs/                         # diagrams as code (architecture.py, cicd.py → *.png), screenshots/
 ├── scripts/plan-fingerprint.sh       # hash of planned changes: apply only what was approved
 ├── .github/workflows/terraform.yml   # PR: fmt → validate + tflint → plan · main: … → approve → apply
 └── .terraform-version          # pinned Terraform version (tenv / setup-terraform)
