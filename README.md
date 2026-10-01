@@ -17,37 +17,9 @@ A few things go beyond the brief. Each is small and closes a real gap:
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    user([Browser]) -- HTTPS --> cf
+![Architecture: viewers reach CloudFront, which forwards to the ALB in the public subnets and on to Nginx, Tomcat and Magnolia on a private EC2 instance; the instance reaches the internet only through the NAT gateway, and operators connect through SSM Session Manager](docs/architecture.png)
 
-    subgraph aws[AWS account · eu-west-1]
-        cf[CloudFront<br/>TLS, HTTP→HTTPS redirect<br/>caches /.resources/* and /VAADIN/*<br/>adds X-Origin-Verify header]
-
-        subgraph vpc[VPC 10.20.0.0/16]
-            subgraph pub[Public subnets · 2 AZs]
-                alb[Application Load Balancer<br/>SG: CloudFront prefix list only<br/>listener: 403 unless X-Origin-Verify matches]
-                nat[NAT Gateway]
-            end
-            subgraph priv[Private subnets · 2 AZs]
-                subgraph ec2[EC2 · Amazon Linux 2023 · no public IP, no SSH]
-                    nginx[Nginx :80] --> tomcat[Tomcat 10.1 :8080<br/>loopback only] --> magnolia[Magnolia CE 6.4<br/>author instance]
-                end
-            end
-            igw[Internet Gateway]
-            s3ep[S3 gateway endpoint]
-        end
-
-        ssm[SSM Parameter Store<br/>superuser password]
-    end
-
-    cf -- "HTTP + secret header" --> alb
-    alb -- "health check /.rest/health/ready" --> nginx
-    ec2 -- "dnf, WAR download" --> nat --> igw
-    ec2 -. "dnf repos (S3)" .-> s3ep
-    ec2 -. "first boot: read password" .-> ssm
-    admin([Operator]) -. "SSM Session Manager" .-> ec2
-```
+<sub>Generated from [`docs/architecture.py`](docs/architecture.py) with [diagrams](https://diagrams.mingrammer.com/). To regenerate: `pip install diagrams` (needs Graphviz), then `python docs/architecture.py && python docs/cicd.py`. Solid blue is the request path, dashed grey is outbound traffic from the instance, dotted purple is operator access. The CI/CD pipeline has its own diagram [below](#cicd-github-actions).</sub>
 
 ### How a request flows
 
@@ -91,6 +63,7 @@ flowchart LR
 │   │   └── cdn/               # CloudFront distribution
 │   ├── backend.hcl.example
 │   └── terraform.tfvars.example
+├── docs/                         # diagrams as code: architecture.py, cicd.py → *.png
 ├── scripts/plan-fingerprint.sh       # hash of planned changes: apply only what was approved
 ├── .github/workflows/terraform.yml   # PR: fmt → validate + tflint → plan · main: … → approve → apply
 └── .terraform-version          # pinned Terraform version (tenv / setup-terraform)
@@ -174,14 +147,9 @@ The apply role cannot delete the state bucket, and `bootstrap/` has `prevent_des
 
 `.github/workflows/terraform.yml`:
 
-```mermaid
-flowchart LR
-    pr[Pull request] --> fmt & validate
-    fmt[fmt] --> plan
-    validate["validate + tflint<br/>(both stacks)"] --> plan
-    plan["plan<br/>read-only role"] -- PR --> comment[Plan as PR comment]
-    plan -- main --> gate{{"aws-dev environment<br/>manual approval"}} --> apply["re-plan · compare fingerprint · apply<br/>apply role"]
-```
+![CI/CD: a pull request runs fmt, validate and plan and posts the plan as a comment; a merge to main runs plan, waits for approval in the aws-dev environment, re-plans, and applies only if the plan fingerprint is unchanged. Plan jobs use a read-only role and apply uses a fenced role, both through GitHub OIDC](docs/cicd.png)
+
+<sub>Generated from [`docs/cicd.py`](docs/cicd.py) with the same shared style as the architecture diagram (`docs/_style.py`).</sub>
 
 | Job | Runs on | AWS access |
 |---|---|---|
