@@ -19,7 +19,7 @@ A few things go beyond the brief. Each is small and closes a real gap:
 
 ![Architecture: viewers reach CloudFront, which forwards to the ALB in the public subnets and on to Nginx, Tomcat and Magnolia on a private EC2 instance; the instance reaches the internet only through the NAT gateway, and operators connect through SSM Session Manager](docs/architecture.png)
 
-<sub>Generated from [`docs/architecture.py`](docs/architecture.py) with [diagrams](https://diagrams.mingrammer.com/). To regenerate: `pip install diagrams` (needs Graphviz), then `python docs/architecture.py`. Solid blue is the request path, dashed grey is outbound traffic from the instance, dotted purple is operator access. The CI/CD pipeline has its own diagram [below](#cicd-github-actions).</sub>
+<sub>Generated from [`docs/architecture.py`](docs/architecture.py) with [diagrams](https://diagrams.mingrammer.com/). To regenerate: `pip install diagrams` (needs Graphviz), then `python docs/architecture.py && python docs/cicd.py`. Solid blue is the request path, dashed grey is outbound traffic from the instance, dotted purple is operator access. The CI/CD pipeline has its own diagram [below](#cicd-github-actions).</sub>
 
 ### How a request flows
 
@@ -63,7 +63,7 @@ A few things go beyond the brief. Each is small and closes a real gap:
 │   │   └── cdn/               # CloudFront distribution
 │   ├── backend.hcl.example
 │   └── terraform.tfvars.example
-├── docs/architecture.py           # diagram source (diagrams-as-code) → docs/architecture.png
+├── docs/                         # diagrams as code: architecture.py, cicd.py → *.png
 ├── scripts/plan-fingerprint.sh       # hash of planned changes: apply only what was approved
 ├── .github/workflows/terraform.yml   # PR: fmt → validate + tflint → plan · main: … → approve → apply
 └── .terraform-version          # pinned Terraform version (tenv / setup-terraform)
@@ -147,14 +147,9 @@ The apply role cannot delete the state bucket, and `bootstrap/` has `prevent_des
 
 `.github/workflows/terraform.yml`:
 
-```mermaid
-flowchart LR
-    pr[Pull request] --> fmt & validate
-    fmt[fmt] --> plan
-    validate["validate + tflint<br/>(both stacks)"] --> plan
-    plan["plan<br/>read-only role"] -- PR --> comment[Plan as PR comment]
-    plan -- main --> gate{{"aws-dev environment<br/>manual approval"}} --> apply["re-plan · compare fingerprint · apply<br/>apply role"]
-```
+![CI/CD: a pull request runs fmt, validate and plan and posts the plan as a comment; a merge to main runs plan, waits for approval in the aws-dev environment, re-plans, and applies only if the plan fingerprint is unchanged. Plan jobs use a read-only role and apply uses a fenced role, both through GitHub OIDC](docs/cicd.png)
+
+<sub>Generated from [`docs/cicd.py`](docs/cicd.py) with the same shared style as the architecture diagram (`docs/_style.py`).</sub>
 
 | Job | Runs on | AWS access |
 |---|---|---|

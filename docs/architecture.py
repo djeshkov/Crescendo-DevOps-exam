@@ -22,23 +22,12 @@ from diagrams.onprem.client import User, Users
 from diagrams.onprem.network import Internet, Nginx, Tomcat
 from diagrams.programming.language import Java
 
+from _style import CONTROL as control
+from _style import EDGE, GRAPH, NODE
+from _style import OUTBOUND as outbound
+from _style import REQUEST as request
+
 OUTPUT = Path(__file__).with_name("architecture")
-
-GRAPH = {
-    "fontsize": "22",
-    "fontname": "Helvetica",
-    "pad": "0.7",
-    "nodesep": "0.8",
-    "ranksep": "1.6",
-    "splines": "ortho",  # right-angle edges. Ortho places edge labels poorly, so details live in node labels
-}
-NODE = {"fontsize": "12", "fontname": "Helvetica"}
-EDGE = {"fontsize": "11", "fontname": "Helvetica"}
-
-# Edge styles: the request path vs. outbound traffic and operator access.
-request = {"color": "#1f6feb", "penwidth": "2.2"}
-outbound = {"color": "#6e7781", "style": "dashed"}
-control = {"color": "#8250df", "style": "dotted", "penwidth": "1.5"}
 
 # Layout is driven by edge direction (LR): each `>>` puts its target one column to the right.
 # Everything the instance calls is written right-to-left with `<<`. NAT, the S3 endpoint and
