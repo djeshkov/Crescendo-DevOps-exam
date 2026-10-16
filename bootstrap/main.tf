@@ -99,7 +99,8 @@ resource "aws_s3_bucket_policy" "state" {
   depends_on = [aws_s3_bucket_public_access_block.state]
 }
 
-# Old state versions are only needed for recovery; don't keep them forever.
+# Old state versions are only needed for recovery; don't keep them forever. Uploads that never
+# completed leave invisible, billed parts behind, so those are cleaned up after a week.
 resource "aws_s3_bucket_lifecycle_configuration" "state" {
   bucket = aws_s3_bucket.state.id
 
@@ -111,6 +112,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
 
     noncurrent_version_expiration {
       noncurrent_days = 90
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }

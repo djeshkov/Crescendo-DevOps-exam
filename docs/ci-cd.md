@@ -10,6 +10,7 @@ The workflow is [`.github/workflows/terraform.yml`](../.github/workflows/terrafo
 |---|---|---|
 | `fmt` | PR, main | none |
 | `validate` | PR, main | none; `validate` and `tflint` for both stacks |
+| `checkov` | PR, main | none; security scan of both stacks, reports findings without blocking (soft-fail) |
 | `plan` | PR, main | plan role (read-only); posted as a PR comment |
 | `apply` | main, only when the plan has changes | apply role, after approval in the `aws-dev` environment |
 
