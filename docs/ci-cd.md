@@ -2,7 +2,7 @@
 
 [← README](../README.md)
 
-![CI/CD: a pull request runs fmt, validate and plan and posts the plan as a comment; a merge to main runs plan, waits for approval in the aws-dev environment, re-plans, and applies only if the plan fingerprint is unchanged.](cicd.png)
+![CI/CD: a pull request runs fmt, validate, a report-only Checkov scan and plan, and posts the plan as a comment; a merge to main runs plan, waits for approval in the aws-dev environment, re-plans, and applies only if the plan fingerprint is unchanged.](cicd.png)
 
 The workflow is [`.github/workflows/terraform.yml`](../.github/workflows/terraform.yml).
 

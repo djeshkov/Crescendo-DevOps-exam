@@ -38,13 +38,13 @@ with Diagram(
     with Cluster("GitHub Actions · .github/workflows/terraform.yml"):
         with Cluster("Pull request"):
             pr = Github("pull request")
-            pr_checks = Terraform("fmt · validate · tflint\nboth stacks, no AWS access")
+            pr_checks = Terraform("fmt · validate · tflint\n+ checkov (report only)\nboth stacks, no AWS access")
             pr_plan = Terraform("plan")
             pr_comment = Github("plan posted\nas PR comment")
 
         with Cluster("Push to main (after merge)"):
             merge = Github("merge to main")
-            main_checks = Terraform("fmt · validate · tflint")
+            main_checks = Terraform("fmt · validate · tflint\n+ checkov (report only)")
             main_plan = Terraform("plan\n+ fingerprint")
             changes = Decision("changes?")
             nothing = StartEnd("nothing to apply\n(no approval asked)")
