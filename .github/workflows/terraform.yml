@@ -93,6 +93,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }} # rate limit for downloading the ruleset
 
+  # Static security scan of both stacks. Soft-fail: findings show up in the job log but never block
+  # a merge, because the known dev trade-offs (HTTP behind CloudFront, no WAF, no custom domain) are
+  # documented in docs/limitations.md rather than suppressed. Not a required check.
+  checkov:
+    name: checkov
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: bridgecrewio/checkov-action@2f9fbe2d1e51440f8f5c42abc829aad8e9e4faab # v12.3127.0 (Checkov 3.3.21)
+        with:
+          directory: .
+          framework: terraform
+          output_format: cli
+          compact: true
+          quiet: true
+          soft_fail: true
+
   plan:
     name: plan
     needs: [fmt, validate]
