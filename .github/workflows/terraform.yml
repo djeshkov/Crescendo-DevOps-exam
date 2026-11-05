@@ -102,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: bridgecrewio/checkov-action@2f9fbe2d1e51440f8f5c42abc829aad8e9e4faab # v12.3127.0 (Checkov 3.3.21)
+      - uses: bridgecrewio/checkov-action@45edc9d8856b664db2ec251f5f8632361f0a67aa # v12.3127.0 (Checkov 3.3.21)
         with:
           directory: .
           framework: terraform
